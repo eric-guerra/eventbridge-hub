@@ -1,0 +1,42 @@
+services:
+  postgres:
+    image: debezium/postgres:13
+    environment: { POSTGRES_DB: hub, POSTGRES_USER: hub, POSTGRES_PASSWORD: hub }
+    command: ["postgres", "-c", "wal_level=logical", "-c", "max_replication_slots=4", "-c", "max_wal_senders=4"]
+    ports: ["5432:5432"]
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:6.2.0
+    environment: { ZOOKEEPER_CLIENT_PORT: 2181 }
+
+  kafka:
+    image: confluentinc/cp-kafka:6.2.0
+    depends_on: [zookeeper]
+    ports: ["9092:9092"]
+    environment:
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+
+  connect:
+    image: debezium/connect:1.6
+    depends_on: [kafka, postgres]
+    ports: ["8083:8083"]
+    environment:
+      BOOTSTRAP_SERVERS: kafka:29092
+      GROUP_ID: hub-connect
+      CONFIG_STORAGE_TOPIC: _connect_configs
+      OFFSET_STORAGE_TOPIC: _connect_offsets
+      STATUS_STORAGE_TOPIC: _connect_status
+      CONNECT_CONFIG_PROVIDERS: file
+      CONNECT_CONFIG_PROVIDERS_FILE_CLASS: org.apache.kafka.common.config.provider.FileConfigProvider
+    volumes: ["./connect/secrets:/secrets:ro"]
+
+  hub:
+    build: .
+    depends_on: [postgres, kafka]
+    environment: { DB_HOST: postgres, KAFKA: "kafka:29092" }
+    ports: ["8080:8080"]
